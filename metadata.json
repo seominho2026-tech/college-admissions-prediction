@@ -1,0 +1,8 @@
+{
+  "name": "대입 합격 가능성 분석 대시보드",
+  "description": "학년별 학생 데이터와 대학 컷 데이터를 분석하여 대입 합격 가능성 분석 및 AI 진단 결과를 시각화해주는 대시보드입니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
