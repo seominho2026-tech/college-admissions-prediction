@@ -29,6 +29,49 @@ import {
 } from 'recharts';
 import { Student, College } from './types';
 
+// Simple CSV Parser Helper to parse Google Sheets CSV export on the client side
+function parseCSV(csvText: string): Record<string, string>[] {
+  const lines = csvText.split(/\r?\n/);
+  if (lines.length === 0) return [];
+  
+  // Parse headers
+  const headers = parseCSVLine(lines[0]);
+  const result: Record<string, string>[] = [];
+  
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const values = parseCSVLine(line);
+    const obj: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      obj[header.trim()] = values[index]?.trim() || '';
+    });
+    result.push(obj);
+  }
+  return result;
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  
+  return result.map(v => v.replace(/^"|"$/g, '').trim());
+}
+
 export default function App() {
   // 1. Core State
   const [grade, setGrade] = useState<'1' | '2'>('1');
@@ -52,11 +95,57 @@ export default function App() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/load-data?grade=${grade}`);
-        if (!response.ok) {
-          throw new Error(`데이터 로드 실패: ${response.statusText}`);
+        let data;
+        try {
+          const response = await fetch(`/api/load-data?grade=${grade}`);
+          if (!response.ok) {
+            throw new Error(`HTTP status ${response.status}`);
+          }
+          const contentType = response.headers.get('content-type');
+          if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('Not a JSON response');
+          }
+          data = await response.json();
+        } catch (apiErr) {
+          console.warn('백엔드 API 호출 실패, 구글 시트에서 직접 데이터를 로드합니다 (Vercel 환경 지원):', apiErr);
+          
+          const SHEET_ID = "1FMbA832ZltzsjlNc0k6gaFaixAnwJBXixNzrxkQKDPM";
+          const GIDS = {
+            "1": {
+              student: "1757920348",
+              college: "0"
+            },
+            "2": {
+              student: "140088215",
+              college: "57746467"
+            }
+          };
+          
+          const config = GIDS[grade as "1" | "2"];
+          const studentUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${config.student}`;
+          const collegeUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${config.college}`;
+          
+          const [studentRes, collegeRes] = await Promise.all([
+            fetch(studentUrl),
+            fetch(collegeUrl)
+          ]);
+          
+          if (!studentRes.ok) {
+            throw new Error(`학생 데이터 로드 실패: ${studentRes.statusText}`);
+          }
+          if (!collegeRes.ok) {
+            throw new Error(`대학 데이터 로드 실패: ${collegeRes.statusText}`);
+          }
+          
+          const studentCsv = await studentRes.text();
+          const collegeCsv = await collegeRes.text();
+          
+          data = {
+            students: parseCSV(studentCsv) as unknown as Student[],
+            colleges: parseCSV(collegeCsv) as unknown as College[]
+          };
         }
-        const data = await response.json();
+
         setStudents(data.students || []);
         setColleges(data.colleges || []);
         
